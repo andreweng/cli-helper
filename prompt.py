@@ -40,17 +40,17 @@ def suppress_stdout_stderr():
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
-def send_prompt(user_prompt, model="gemma3:12b", url="http://172.16.100.3:11434/api/generate"):
+def send_prompt(user_prompt, model="gemma3:12b", url="http://localhost:11434/api/generate"):
     """
     Send a prompt to the local Ollama server and return the response.
     
     Args:
         user_prompt (str): The prompt to send to the model
-        model (str): The model name to use (default: llama3)
+        model (str): The model name to use (default: gemma3:12b)
         url (str): The Ollama server endpoint (default: localhost:11434)
     
     Returns:
-        str: The response from the model
+        str: The response from the model or error message
     """
     system_prompt = "You are a senior Site Reliability Engineer and Systems Administrator. You will provide short concise answers to technical questions no longer than 140 characters. Do not provide a follow up, do not provide any other responses other than the answer."
     headers = {"Content-Type": "application/json"}
@@ -60,30 +60,38 @@ def send_prompt(user_prompt, model="gemma3:12b", url="http://172.16.100.3:11434/
         "stream": False
     }
     
+    # Try with provided/default URL (localhost)
     try:
-        # Use context manager to suppress warnings during the request
-        with suppress_stdout_stderr():
-            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=30)
-            response.raise_for_status()
-            result = response.json()
-        if "response" not in result:
-            return "Error: Unexpected API response format"
-        return result.get("response", "No response received")
-    except requests.ConnectionError:
-        return "Error: Could not connect to Ollama server. Is it running?"
-    except requests.Timeout:
-        return "Error: Request timed out. The server might be overloaded."
-    except requests.HTTPError as e:
-        if e.response.status_code == 404:
-            return f"Error: Model '{model}' not found. Try another model."
-        elif e.response.status_code >= 500:
-            return "Error: Server error. The Ollama service might be having issues."
-        else:
-            return f"Error: HTTP error {e.response.status_code}: {str(e)}"
-    except json.JSONDecodeError:
-        return "Error: Invalid response from server. Not a valid JSON."
-    except requests.RequestException as e:
-        return f"Error: {str(e)}"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+        if response.status_code == 200:
+            return response.json().get("response", "")
+    except (requests.RequestException, json.JSONDecodeError):
+        pass
+        
+    # If localhost failed and we're using it, try with WSL nameserver IP
+    if "localhost" in url:
+        try:
+            # Read /etc/resolv.conf to get WSL nameserver IP
+            with open("/etc/resolv.conf", "r") as f:
+                resolv_conf = f.read()
+                # Extract the nameserver IP
+                match = re.search(r'nameserver\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', resolv_conf)
+                if match:
+                    wsl_ip = match.group(1)
+                    wsl_url = url.replace("localhost", wsl_ip)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        response = requests.post(wsl_url, headers=headers, json=data, timeout=10)
+                    if response.status_code == 200:
+                        return response.json().get("response", "")
+
+        except (FileNotFoundError, requests.RequestException, json.JSONDecodeError):
+            pass
+    
+    # If all attempts failed
+    return "Cannot contact ollama server."
 
 # Command execution functionality removed as requested
 
