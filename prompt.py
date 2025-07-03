@@ -40,7 +40,7 @@ def suppress_stdout_stderr():
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
-def send_prompt(user_prompt, model="gemma3:12b", url="http://localhost:11434/api/generate"):
+def send_prompt(user_prompt, model="gemma3:12b", url="http://172.16.100.3:11434/api/generate"):
     """
     Send a prompt to the local Ollama server and return the response.
     
